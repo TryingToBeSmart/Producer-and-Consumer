@@ -8,11 +8,13 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 #include <signal.h>
+#include <asm/signal.h>
 
 int WAKEUP = SIGUSR1;
+sigset_t sigSet;
 
 pid_t otherPid;
-sem_t mutex;
+pthread_mutex_t mutex;
 
 // Shared Circular Buffer. Each element holds an int 
 struct CIRCULAR_BUFFER
@@ -24,26 +26,60 @@ struct CIRCULAR_BUFFER
 };
 struct CIRCULAR_BUFFER *buffer = NULL;
 
+// Sleep function
+void sleepUntilWoken()
+{
+    int nSig;
+
+    //put to sleep until notified to wake up
+    printf("sleeping...\n");
+    sigwait(&sigSet, &nSig);
+    printf("Awoken\n");
+}
+
 // Responsible for creating numbers and passing them to 
 // the Consumer via a shared circular buffer
-void producer()
+void producer(int args[])
 {
-    // Go to sleep if the buffer is full
-    if (buffer->count == 100) pause();
+    // Add all elements to the buffer
+    for(int i = 0; i < sizeof(args); i++)
+    {
+        // Go to sleep if the buffer is full
+        if (buffer->count == 100) sleepUntilWoken();
 
-    kill(otherPid, WAKEUP);
-    // Signal the consumer
+        set(args[i]);
+
+        // Signal the consumer
+        printf("Waking Consumer...\n");
+        kill(otherPid, WAKEUP); 
+    }
 }
 
 // Consumer will always be behind the producer
 // and will not have to wait for the producer
-void consumer()
+// got this idea from: stackoverflow.com/questions/11656532/returning-an-array-using-c
+// return an array
+char *consumer(int size)
 {
-    // Go to sleep if there is no data in buffer
-    if (buffer->count == 0) pause();
+    char *ret = malloc(size);
+    for(int i = 0; i < size; i++)
+    {
+        // Set up a Signal set
+        sigemptyset(&sigSet);
+        sigaddset(&sigSet, WAKEUP);
+        sigprocmask(SIG_BLOCK, &sigSet, NULL);
+        // Go to sleep if there is no data in buffer
+        if (buffer->count == 0) sleepUntilWoken();
 
+        // Get the next int element in the buffer
+        // and place it into the ret array at element location i
+        ret[i] = get();
 
-    // Signal the producer
+        // Signal the producer
+        printf("Waking Producer...\n");
+        kill(otherPid, WAKEUP);
+    }
+    return ret;
 }
 
 // put function to write to the buffer
@@ -78,9 +114,19 @@ int get()
 
 int main(int argc, char* argv[])
 {
+    // If no arguments passed, end program with message
+    if(argc <= 1)
+    {
+        printf("Try again. Must pass arguments");
+        return -1;
+    }
+
+    int (*result)[argc-1];
+
     pid_t pid;
-    // Initialize semaphore
-    sem_init(&mutex, 0, 1);
+
+    // Initialize mutex
+    pthread_mutex_init(&mutex, 0);
 
     // Create shared memory for the Circular Buffer to be shared between
     // the Parent and Child Processes
@@ -104,12 +150,31 @@ int main(int argc, char* argv[])
     {
         // Run Producer process logic as a child process
         otherPid = getppid();
-        producer();
+
+        // send array of arguments to the producer
+        producer(argv);
     }
     else
     {
         // Run Consumer process logic at Parent process
+        // result pointer points to array that consumer returns
         otherPid = pid;
-        consumer();
+        result = consumer(argc);
+
+        // print the result
+        for (int i = 0; i < sizeof(result); i++)
+        {
+            printf("%d ", result[i]);
+        }
     }
+
+    // TODO Print result
+    for(int i = 0; i < sizeof(result); i++)
+    {
+        printf("%s ", result[i]);
+    }
+
+    pthread_mutex_destroy(&mutex);
+    pthread_exit(NULL);
+    return 0;
 }
