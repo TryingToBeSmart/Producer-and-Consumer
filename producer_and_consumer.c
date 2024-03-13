@@ -8,7 +8,6 @@
 #include <semaphore.h>
 #include <sys/mman.h>
 #include <signal.h>
-#include <asm/signal.h>
 
 int WAKEUP = SIGUSR1;
 sigset_t sigSet;
@@ -39,15 +38,19 @@ void sleepUntilWoken()
 
 // Responsible for creating numbers and passing them to 
 // the Consumer via a shared circular buffer
-void producer(int args[])
+void producer(int args[], int size)
 {
     // Add all elements to the buffer
-    for(int i = 0; i < sizeof(args); i++)
+    for(int i = 0; i < size; i++)
     {
         // Go to sleep if the buffer is full
-        if (buffer->count == 100) sleepUntilWoken();
+        if (buffer->count == sizeof(buffer->buffer)) 
+        {
+            printf("Producer going to sleep...\n");
+            sleepUntilWoken();
+        }
 
-        set(args[i]);
+        put(args[i]);
 
         // Signal the consumer
         printf("Waking Consumer...\n");
@@ -59,9 +62,9 @@ void producer(int args[])
 // and will not have to wait for the producer
 // got this idea from: stackoverflow.com/questions/11656532/returning-an-array-using-c
 // return an array
-char *consumer(int size)
+int *consumer(int size)
 {
-    char *ret = malloc(size);
+    int *ret = malloc(size * sizeof(int));
     for(int i = 0; i < size; i++)
     {
         // Set up a Signal set
@@ -69,7 +72,11 @@ char *consumer(int size)
         sigaddset(&sigSet, WAKEUP);
         sigprocmask(SIG_BLOCK, &sigSet, NULL);
         // Go to sleep if there is no data in buffer
-        if (buffer->count == 0) sleepUntilWoken();
+        if (buffer->count == 0) 
+        {
+            printf("Consumer going to sleep...\n");
+            sleepUntilWoken();
+        }
 
         // Get the next int element in the buffer
         // and place it into the ret array at element location i
@@ -85,9 +92,9 @@ char *consumer(int size)
 // put function to write to the buffer
 void put(int number) 
 {
-    if(buffer->count < 100)
+    if(buffer->count < sizeof(buffer->buffer))
     {
-        buffer->buffer[buffer->upper] = number; // assign the number to the buffer's next upper array location
+        buffer->buffer[buffer->upper % sizeof(buffer->buffer)] = number; // assign the number to the buffer's next upper array location
         ++buffer->upper; // increment the upper(write) location slot
         ++buffer->count; // increment the buffer count
     }
@@ -100,10 +107,10 @@ int get()
     if(buffer->count > 0)
     {
         // return the number that is in the buffer's lower slot location
-        int returnNumber = buffer->buffer[buffer->lower]; 
-        --buffer->lower; // decrement the lower(read) location
+        int returnNumber = buffer->buffer[buffer->lower % sizeof(buffer->buffer)]; 
+        ++buffer->lower; // increment the lower(read) location
         --buffer->count; // decrement the buffer count
-        printf("Returning: %d from location: %d", returnNumber, buffer->lower);
+        printf("Returning: %d from location: %d\n", returnNumber, buffer->lower);
         return returnNumber;
     }
     else printf("Buffer is empty, nothing to get");
@@ -112,7 +119,7 @@ int get()
 
 
 
-int main(int argc, char* argv[])
+int main(int argc, int* argv[])
 {
     // If no arguments passed, end program with message
     if(argc <= 1)
@@ -121,12 +128,10 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    int (*result)[argc-1];
-
     pid_t pid;
 
     // Initialize mutex
-    pthread_mutex_init(&mutex, 0);
+    pthread_mutex_init(&mutex, NULL);
 
     // Create shared memory for the Circular Buffer to be shared between
     // the Parent and Child Processes
@@ -141,7 +146,7 @@ int main(int argc, char* argv[])
     if (pid == -1)
     {
         // Error: if fork() returns -1, then error
-        printf("Error in fork()", errno);
+        printf("Error in fork(), error %d\n", errno);
         exit(EXIT_FAILURE);
     }
 
@@ -152,26 +157,23 @@ int main(int argc, char* argv[])
         otherPid = getppid();
 
         // send array of arguments to the producer
-        producer(argv);
+        producer(argv, argc - 1);
     }
     else
     {
         // Run Consumer process logic at Parent process
         // result pointer points to array that consumer returns
         otherPid = pid;
-        result = consumer(argc);
+        int *result = consumer(argc - 1);
 
         // print the result
-        for (int i = 0; i < sizeof(result); i++)
+        for(int i = 0; i < sizeof(result); i++)
         {
             printf("%d ", result[i]);
         }
-    }
+        printf("\n");
 
-    // TODO Print result
-    for(int i = 0; i < sizeof(result); i++)
-    {
-        printf("%s ", result[i]);
+        free(result); // free memory
     }
 
     pthread_mutex_destroy(&mutex);
