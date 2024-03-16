@@ -110,10 +110,10 @@ int get()
     {
         // return the number that is in the buffer's lower slot location
         int returnNumber = buffer->buffer[buffer->lower]; 
+        printf("Returning: %d from location: %d\n", returnNumber, buffer->lower);
         ++buffer->lower; // increment the lower(read) location and wrap around if needed
         if(buffer->lower >= 100) buffer->lower = 0; // reset buffer lower position to the beginning 
         --buffer->count; // decrement the buffer count
-        printf("Returning: %d from location: %d\n", returnNumber, buffer->lower);
         return returnNumber;
     }
     else printf("Buffer is empty, nothing to get");
