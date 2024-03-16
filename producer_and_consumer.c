@@ -95,8 +95,9 @@ void put(int number)
 {
     if(buffer->count < sizeof(buffer->buffer))
     {
-        buffer->buffer[buffer->upper % sizeof(buffer->buffer)] = number; // assign the number to the buffer's next upper array location
-        buffer->upper = (buffer->upper + 1) % sizeof(buffer->buffer); // increment the upper(write) location slot and wrape around if needed
+        buffer->buffer[buffer->upper] = number; // assign the number to the buffer's next upper array location
+        ++buffer->upper; // increment the upper(write) location slot and wrape around if needed
+        if(buffer->upper >= 100) buffer->upper = 0; // reset buffer upper position to the beginning
         ++buffer->count; // increment the buffer count
     }
     else printf("Buffer is full, did not add");
@@ -108,8 +109,9 @@ int get()
     if(buffer->count > 0)
     {
         // return the number that is in the buffer's lower slot location
-        int returnNumber = buffer->buffer[buffer->lower % sizeof(buffer->buffer)]; 
-        buffer->lower = (buffer->lower + 1) % sizeof(buffer->buffer); // increment the lower(read) location and wrap around if needed
+        int returnNumber = buffer->buffer[buffer->lower]; 
+        ++buffer->lower; // increment the lower(read) location and wrap around if needed
+        if(buffer->lower >= 100) buffer->lower = 0; // reset buffer lower position to the beginning 
         --buffer->count; // decrement the buffer count
         printf("Returning: %d from location: %d\n", returnNumber, buffer->lower);
         return returnNumber;
